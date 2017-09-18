@@ -31,6 +31,7 @@ ALLOWED_HOSTS = ['*']
 # Application definition
 
 INSTALLED_APPS = [
+    'grabber.apps.GrabberConfig',
     'crispy_forms',
     'django.contrib.admin',
     'django.contrib.auth',
