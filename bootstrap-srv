@@ -14,10 +14,19 @@ apt-get install python3-pip python-dev build-essential tmux htop mysql-server py
 pip install --upgrade pip
 pip install virtualenv
 virtualenv cca-venv
+. cca-venv/bin/activate ########################
+#django-admin cca
+#mv cca-venv cca
+cd cca
+. cca-venv/bin/activate
 pip install django django-crispy-forms django-braces
+python manage.py startapp grabber
+pip freeze --local > requirements.txt
 
 cat <<'EOF' | mysql -u root -p
-CREATE DATABASE test;
-GRANT ALL ON test.* TO 'kas'@'%' IDENTIFIED BY 'kas';
-GRANT ALL ON test.* TO 'kas'@'localhost' IDENTIFIED BY 'kas';
+CREATE DATABASE cca;
+GRANT ALL ON cca.* TO 'kas'@'%' IDENTIFIED BY 'kas';
+GRANT ALL ON cca.* TO 'kas'@'localhost' IDENTIFIED BY 'kas';
 EOF
+
+python manage.py migrate
