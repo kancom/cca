@@ -1,0 +1,23 @@
+https://docs.djangoproject.com/en/1.11/intro/tutorial02/
+    IP-адрес сервера : 149.154.71.146
+    Пользователь : root
+    Пароль : AAxg22H1Mf6m
+
+
+apt-get update && apt-get upgrade
+#apt-get install python-pip python-dev build-essential
+update-alternatives --remove python /usr/bin/python2
+update-alternatives --install /usr/bin/python python /usr/bin/python3 1
+apt-get install python3-pip python-dev build-essential tmux htop mysql-server python3-mysqldb git
+#rm /usr/bin/pip
+#ln -s `which pip3` /usr/bin/pip
+pip install --upgrade pip
+pip install virtualenv
+virtualenv cca-venv
+pip install django django-crispy-forms django-braces
+
+cat <<'EOF' | mysql -u root -p
+CREATE DATABASE test;
+GRANT ALL ON test.* TO 'kas'@'%' IDENTIFIED BY 'kas';
+GRANT ALL ON test.* TO 'kas'@'localhost' IDENTIFIED BY 'kas';
+EOF
