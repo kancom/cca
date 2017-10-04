@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+
+{% block headline %}<h3>Welcome to Cars Classifider Aggregator aka CCA!</h3>{% endblock headline %}
+
+{% block content %}
+<p>Howdy{% if user.is_authenticated %} {{ user.username }}{% endif %}!</p>
+{% endblock %}

@@ -8,18 +8,14 @@ apt-get update && apt-get upgrade
 #apt-get install python-pip python-dev build-essential
 update-alternatives --remove python /usr/bin/python2
 update-alternatives --install /usr/bin/python python /usr/bin/python3 1
-apt-get install python3-pip python-dev build-essential tmux htop mysql-server python3-mysqldb git
-#rm /usr/bin/pip
-#ln -s `which pip3` /usr/bin/pip
-pip install --upgrade pip
-pip install virtualenv
-virtualenv cca-venv
+apt-get install python3-dev build-essential tmux htop mysql-server python3-mysqldb git virtualenv
+virtualenv -p python3 cca-venv
 . cca-venv/bin/activate ########################
 #django-admin cca
 #mv cca-venv cca
 cd cca
 . cca-venv/bin/activate
-pip install django django-crispy-forms django-braces
+pip install django django-crispy-forms django-braces scrapy mysqlclient
 python manage.py startapp grabber
 pip freeze --local > requirements.txt
 
@@ -30,3 +26,4 @@ GRANT ALL ON cca.* TO 'kas'@'localhost' IDENTIFIED BY 'kas';
 EOF
 
 python manage.py migrate
+python manage.py runserver

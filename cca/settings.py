@@ -32,6 +32,9 @@ ALLOWED_HOSTS = ['*']
 
 INSTALLED_APPS = [
     'grabber.apps.GrabberConfig',
+    'catalog.apps.CatalogConfig',
+    'background_task',
+    'django_tables2',
     'crispy_forms',
     'django.contrib.admin',
     'django.contrib.auth',
@@ -56,10 +59,14 @@ ROOT_URLCONF = 'cca.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [
+            'cca/templates/',
+            'cca/grabber/templates/',
+            ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                'django.template.context_processors.request',
                 'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
