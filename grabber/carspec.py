@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 
 from abc import ABC
-import re
+import re, os
 from grabber.models import *
+from urllib.request import urlretrieve
+from django.conf import settings
 
 __author__ = "Andrey Kashrin <kashirinas@rambler.ru>"
 __license__ = "Apache 2.0"
@@ -29,9 +31,10 @@ class Field(object):
     def __str__(self):
         return "%s" % self.value
 
+
 re_int = re.compile(r'([+\-]?\d+)')
 re_float = re.compile(r'([+\-]?[\d,\.]+)')
-re_int_msr = re.compile(r'([\d,\.]+)\s*([A-z/]+)', re.I)
+re_float_msr = re.compile(r'([\d,\.]+)\s*([A-z/]+)', re.I)
 
 
 def extract_group(regexp, text, default=None, groups=[1],
@@ -72,7 +75,7 @@ def extract_float(text, default=None):
 
 
 def extract_int_measure(text, group_having=None):
-    return extract_group(re_int_msr, text, groups=[1, 2],
+    return extract_group(re_float_msr, text, groups=[1, 2],
                          group_having=group_having)
 
 
@@ -80,7 +83,7 @@ def extract_int_and_correct(text, group_having, correcting):
     int = None
     try:
         int, measure = extract_int_measure(text, group_having)
-        if int and not re.match(group_having, measure):
+        if int and not re.match(group_having, measure, re.I):
             int = float(int) * correcting
     except:
         log.exception("extract_int_and_correct({}, {}, {}) failed".
@@ -88,13 +91,30 @@ def extract_int_and_correct(text, group_having, correcting):
     return int
 
 
+def extract_int_and_correct_rev(text, group_having, correcting):
+    fl = None
+    try:
+        fl, measure = extract_int_measure(text, group_having)
+        if fl and not re.match(group_having, measure, re.I):
+            fl = correcting / float(fl)
+    except:
+        log.exception("extract_int_and_correct_rev({}, {}, {}) failed".
+                      format(text, group_having, correcting))
+    return fl
+
+
 def extract_name(text):
     return text.strip().title()
 
 
-def extract_url(text):
-    log.debug("https://stackoverflow.com/a/10297620/3621883")
-    return text
+def extract_url(url, suffix):
+    filename = url.split('/')[-1]
+    path = os.path.join(settings.MEDIA_ROOT,
+                                  suffix, filename)
+    if not os.path.exists(path):
+        urlretrieve(url, path)
+    #~ log.debug("https://stackoverflow.com/a/10297620/3621883")
+    return filename
 
 
 def extract_dbobject(proxy):
@@ -103,6 +123,31 @@ def extract_dbobject(proxy):
 
 def extract_none(*args):
     return None
+
+
+def strip_spaces(text):
+    return re.sub(r"[^0-9R/]", "", text, count=0, flags=re.I)
+
+
+def contains_word(text, word):
+    result = None
+    if text:
+        if word in text:
+            result = True
+        else:
+            result = False
+    return result
+
+
+def adapt(text, verify_list):
+    if not text:
+        return None
+    text = re.sub(r'\W', '', text)
+    text = extract_name(text)
+    for k, v in verify_list.items():
+        if text in verify_list[k]:
+            return k
+    raise Exception("Value not found. adapt({}, {})".format(text, verify_list))
 
 
 class Entity(ABC):
@@ -152,7 +197,7 @@ class BrandP(Entity):
 
     def __init__(self, **kwargs):
         self.name = Field(extract_name)
-        self.img = Field(extract_url)
+        self.img = Field(extract_url, 'brands')
         self.country = Field(extract_name)
         self.dbclass = Brands
         super(BrandP, self).__init__(**kwargs)
@@ -163,7 +208,7 @@ class ModelP(Entity):
 
     def __init__(self, **kwargs):
         self.name = Field(extract_name)
-        self.img = Field(extract_url)
+        self.img = Field(extract_url, 'models')
         self.brand = Field(extract_dbobject)
         self.dbclass = Models
         super(ModelP, self).__init__(**kwargs)
@@ -179,7 +224,7 @@ class GenerationP(Entity):
     _clsfields = ['img', 'model', 'year_s', 'year_e', 'name']
 
     def __init__(self, **kwargs):
-        self.img = Field(extract_url)
+        self.img = Field(extract_url, 'generations')
         self.name = Field(extract_name)
         self.model = Field(extract_dbobject)
         self.year_s = Field(extract_int)
@@ -191,30 +236,19 @@ class GenerationP(Entity):
 class BodyP(Entity):
     _clsfields = ['type']
 
-    def extract_body(self, text):
-        text = re.sub(r'\W', '', text)
-        text = extract_name(text)
-        if text in ['Suv', 'Suvcrossover', 'Suvs']:
-            return 'Suv'
-        elif text in ['Cabriolet', 'Convertibles']:
-            return 'Cv'
-        elif text in ['Hatchback', 'Hatchbacks']:
-            return 'H'
-        elif text in ['Sedans']:
-            return 'S'
-        elif text in ['Coupes']:
-            return 'Cp'
-        elif text in ['Wagons']:
-            return 'W'
-        elif text in ['Trucks']:
-            return 'P'
-        elif text in ['Vans']:
-            return 'V'
-        else:
-            raise Exception("Unsupported car body: %s" % text)
+    verify_list = {
+                    'Suv': ['Suv', 'Suvcrossover', 'Suvs'],
+                    'Cv': ['Cabriolet', 'Convertibles'],
+                    'H': ['Hatchback', 'Hatchbacks'],
+                    'S': ['Sedans'],
+                    'Cp': ['Coupes'],
+                    'W': ['Wagons'],
+                    'P': ['Trucks'],
+                    'V': ['Vans'],
+                  }
 
     def __init__(self, **kwargs):
-        self.type = Field(self.extract_body)
+        self.type = Field(adapt, self.verify_list)
         self.dbclass = Bodies
         super(BodyP, self).__init__(**kwargs)
 
@@ -222,37 +256,25 @@ class BodyP(Entity):
 class TransmissionP(Entity):
     _clsfields = ['type', 'gears', 'drive_type']
 
-    def extract_gearbox(self, text):
-        text = re.sub(r'\W', '', text)
-        text = extract_name(text)
-        if text in ['Robot', 'Stronicautomatic']:
-            return 'robot'
-        elif text in ['Manual']:
-            return 'manual'
-        elif text in ['Semiautomaat', 'Semiautomatic',
-                      'Sequentialautomatic']:
-            return 'semia'
-        elif text in ['Autmetdubbkoppeling', 'Automaticdct', 'Automatic']:
-            return 'auto'
-        else:
-            raise Exception("Unsupported transmission: %s" % text)
+    gb_list = {
+                'robot': ['Robot', 'Stronicautomatic'],
+                'manual': ['Manual'],
+                'semia': ['Semiautomaat', 'Semiautomatic',
+                          'Sequentialautomatic'],
+                'auto': ['Autmetdubbkoppeling', 'Automaticdct',
+                         'Automatic'],
+                }
 
-    def extract_drivetype(self, text):
-        text = re.sub(r'\W', '', text)
-        text = extract_name(text)
-        if text in ['Allwheeldrive']:
-            return 'a'
-        elif text in ['Frontwheeldrive']:
-            return 'f'
-        elif text in ['Rearwheeldrive']:
-            return 'r'
-        else:
-            raise Exception("Unsupported transmission: %s" % text)
+    dt_list = {
+                'a': ['Allwheeldrive', 'Frontrear'],
+                'f': ['Frontwheeldrive', 'Front'],
+                'r': ['Rearwheeldrive', 'Rear'],
+              }
 
     def __init__(self, **kwargs):
-        self.type = Field(self.extract_gearbox)
+        self.type = Field(adapt, self.gb_list)
         self.gears = Field(extract_int)
-        self.drive_type = Field(self.extract_drivetype)
+        self.drive_type = Field(adapt, self.dt_list)
         self.dbclass = Transmissions
         super(TransmissionP, self).__init__(**kwargs)
 
@@ -260,38 +282,25 @@ class TransmissionP(Entity):
 class EngineP(Entity):
     _clsfields = ['generation', 'power', 'torque', 'speed',
                   'acceleration', 'cylinders', 'displacement', 'fuel',
-                  'fuelsystem', ]
+                  'fuelsystem', 'turbo']
 
-    def extract_fuel(self, text):
-        ext = re.sub(r'\W', '', text)
-        text = extract_name(text)
-        if text in ['Gasoline', 'Petrol']:
-            return 'g'
-        elif text in ['Diesel']:
-            return 'd'
-        elif text in ['Electric']:
-            return 'e'
-        else:
-            raise Exception("Unsupported fuel: %s" % text)
+    fuel_list = {
+                    'g': ['Gasoline', 'Petrol'],
+                    'd': ['Diesel'],
+                    'e': ['Electric'],
+                }
 
-    def extract_fuelsystem(self, text):
-        ext = re.sub(r'\W', '', text)
-        text = extract_name(text)
-        if text in ['Carburetor']:
-            return 'c'
-        elif text in ['Turbochargeddirectinjection', 'Directinjection',
-                      'Directhighpressurefuelinjection']:
-            return 'd'
-        elif text in ['Electric']:
-            return 's'
-        elif text in ['Multipointinjection', 'Multipointfuelinjection',]:
-            return 'p'
-        elif text in ['Electric']:
-            return 'sp'
-        elif text in ['Indirectinjection']:
-            return 'id'
-        else:
-            raise Exception("Unsupported fuelsystem: %s" % text)
+    fuelsys_list = {
+                    'c': ['Carburetor'],
+                    'd': ['Turbochargeddirectinjection',
+                          'Directinjection',
+                          'Directhighpressurefuelinjection'],
+                    's': ['Electric'],
+                    'p': ['Multipointinjection',
+                          'Multipointfuelinjection'],
+                    'sp': ['Electric'],
+                    'id': ['Indirectinjection'],
+                    }
 
     def __init__(self, **kwargs):
         self.cylinders = Field(extract_int)
@@ -301,44 +310,43 @@ class EngineP(Entity):
         self.torque = Field(extract_int_and_correct, r'[nн][mм]', 1)
         self.speed = Field(extract_int_and_correct, r'[kк][mм].?[hч]', 1.609344)
         self.acceleration = Field(extract_float)
-        self.fuel = Field(self.extract_fuel)
-        self.fuelsystem = Field(self.extract_fuelsystem)
+        self.fuel = Field(adapt, self.fuel_list)
+        self.turbo = Field(contains_word, 'yes')
+        self.fuelsystem = Field(adapt, self.fuelsys_list)
         self.dbclass = Engines
         super(EngineP, self).__init__(**kwargs)
-
-class BreakP(Entity):
-    _clsfields = ['type']
-
-    def extract_breaktype(self, text):
-        text = re.sub(r'\W', '', text)
-        text = extract_name(text)
-        if text in ['Ventilateddiscs']:
-            return 'vd'
-        elif text in ['Discs']:
-            return 'd'
-        elif text in ['Drums']:
-            return 'dr'
-        else:
-            raise Exception("Unsupported transmission: %s" % text)
-
-    def __init__(self, **kwargs):
-        self.type = Field(self.extract_breaktype)
-        super(BreakP, self).__init__(**kwargs)
 
 
 class CarP(Entity):
     _clsfields = ['generation', 'body', 'engine', 'transmission',
-                  'breaks_f', 'breaks_r',
+                  'breaks_f', 'breaks_r', 'tires', 'fconsumption',
+                  'length', 'width', 'height', 'clearance',
+                  'cargovolume', 'unladen',
                   'last_update']
+
+    verify_list = {
+                    'vd': ['Ventilateddiscs'],
+                    'd': ['Discs'],
+                    'dr': ['Drums'],
+                  }
 
     def __init__(self, **kwargs):
         self.generation = Field(extract_dbobject)
         self.body = Field(extract_dbobject)
         self.engine = Field(extract_dbobject)
         self.transmission = Field(extract_dbobject)
-        self.breaks_f = Field(extract_dbobject)
-        self.breaks_r = Field(extract_dbobject)
+        self.breaks_f = Field(adapt, self.verify_list)
+        self.breaks_r = Field(adapt, self.verify_list)
         self.tires = Field(strip_spaces)
         self.last_update = Field(extract_none)
+        self.fconsumption = Field(extract_int_and_correct_rev,
+                                  r'[lл]/',
+                                  235.215)  # because re_float_msr doesn't contain digits
+        self.length = Field(extract_int_and_correct, r'[mм][mм]', 25.4)
+        self.width = Field(extract_int_and_correct, r'[mм][mм]', 25.4)
+        self.height = Field(extract_int_and_correct, r'[mм][mм]', 25.4)
+        self.clearance = Field(extract_int_and_correct, r'[mм][mм]', 25.4)
+        self.cargovolume = Field(extract_int_and_correct, r'[lл]', 28.3168)
+        self.unladen = Field(extract_int_and_correct, r'[kк][gг]', 0.453592)
         self.dbclass = Car
         super(CarP, self).__init__(**kwargs)

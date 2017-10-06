@@ -1,13 +1,18 @@
 # -*- coding: utf-8 -*-
 
-from urllib.request import urlopen
+from urllib.request import urlopen, Request
 from bs4 import BeautifulSoup
 from abc import ABCMeta, abstractmethod
 from background_task import background
 import re
+import random
 import logging
 import logging.handlers
-#~ import pdb; pdb.set_trace()
+#~ import socks
+#~ import socket
+#~ socks.setdefaultproxy(socks.PROXY_TYPE_SOCKS5, "127.0.0.1", 8888)
+#~ socket.socket = socks.socksocket
+#~ import pdb;pdb.set_trace()
 
 ################
 import time
@@ -20,48 +25,42 @@ __license__ = "Apache 2.0"
 log = logging.getLogger(__name__)
 
 
-class Specs(object):
-    CYLINDERS = 0
-    DISPLACEMENT = 1
-    FUEL = 2
-    FUELSYSTEM = 3
-    POWER = 4
-    TORQUE = 5
-    ENGINE = [CYLINDERS, DISPLACEMENT, POWER, TORQUE, FUELSYSTEM, FUEL]
-    SPEED = 10
-    ACCELERATION = 11
-    PERFORMANCE = [SPEED, ACCELERATION]
-    CITY = 20
-    HIGHWAY = 21
-    COMBINED = 22
-    FUEL_CONSUMPTION = [CITY, HIGHWAY, COMBINED]
-    DRIVETYPE = 30
-    GEARBOXTYPE = 31
-    GEARS = 32
-    TRANSMISSION = [DRIVETYPE, GEARS]
-    FRONT = 40
-    REAR = 41
-    BREAKS = [FRONT, REAR]
-    SIZE = 50
-    TIRES = [SIZE]
-    CARGOVOLUME = 60
-    CLEARANCE = 61
-    DIMENSIONS = 62
-    HEIGHT = 63
-    LENGTH = 64
-    TRACK = 65
-    WHEELBASE = 66
-    WIDTH = 67
-    DIMENSIONS = [LENGTH, WIDTH, HEIGHT, TRACK, WHEELBASE, CLEARANCE,
-                  CARGOVOLUME]
-    UNLADEN = 70
-    GROSS = 71
-    WEIGHT = [UNLADEN, GROSS]
-    CARBODY = 80
-    DRAGCOEF = 81
-    GENERIC = [CARBODY, DRAGCOEF]
-    SPECS = [ENGINE, PERFORMANCE, FUEL_CONSUMPTION, TRANSMISSION,
-             BREAKS, TIRES, DIMENSIONS, WEIGHT, GENERIC]
+def zip_dict(d1, d2):
+    result = {}
+    for k in d1:
+        if k not in d2:
+            result[k] = d1[k]
+        else:
+            result[k] = (d1[k] or d2[k])
+    return result
+
+class dotdict(dict):
+    """dot.notation access to dictionary attributes"""
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
+
+
+engine = dotdict({'cylinders': 0, 'displacement': 1, 'fuel': 2,
+                  'fuelsystem': 3, 'power': 4, 'torque': 5,
+                  'turbo': 6})
+performance = dotdict({'speed': 10, 'acceleration': 11})
+fuel_consumption = dotdict({'city': 20, 'highway': 21, 'combined': 22})
+transmission = dotdict({'drivetype': 30, 'gearboxtype': 31, 'gears': 32})
+breaks = dotdict({'front': 40, 'rear': 41})
+tires = dotdict({'size': 50})
+dimensions = dotdict({'cargovolume': 60, 'clearance': 61, 'dimensions': 62,
+                      'height': 63, 'length': 64, 'track': 65,
+                      'wheelbase': 66, 'width': 67})
+weight = dotdict({'unladen': 70, 'gross': 71})
+generic = dotdict({'carbody': 80, 'dragcoef': 81})
+
+
+SPECS = dotdict({'engine': engine, 'performance': performance,
+                 'fuel_consumption': fuel_consumption,
+                 'transmission': transmission, 'breaks': breaks,
+                 'tires': tires, 'dimensions': dimensions,
+                 'weight': weight, 'generic': generic})
 
 
 class Grabber(metaclass=ABCMeta):
@@ -70,18 +69,27 @@ class Grabber(metaclass=ABCMeta):
     def __init__(self, url, mode):
         self.url = url
         self.mode = mode
-        self.make_soup(self.url)
-        self.parsing_result = {}
         self.car_specs = {}
         self.get_brands_callback = None
         self.get_models_callback = None
         self.get_generations_callback = None
         logging.basicConfig(filename='/tmp/grabber.log', level=logging.DEBUG)
+        self.UAs = ['Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_4) AppleWebKit/603.1.30 (KHTML, like Gecko) Version/10.1 Safari/603.1.30',
+                    'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:56.0) Gecko/20100101 Firefox/56.0',
+                    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Ubuntu Chromium/61.0.3163.79 Chrome/61.0.3163.79 Safari/537.36',
+                    'Mozilla',
+                    ]
 
     def make_soup(self, url):
+        def get_cached(url):
+            if url in self.url_cache:
+                return self.url_cache[url]
+            else:
+                return url
         try:
             self.url = url
-            page = urlopen(self.url)
+            page = urlopen(Request(get_cached(self.url),
+                           headers={'User-Agent': random.choice(self.UAs)}))
             self.soup = BeautifulSoup(page, 'html5lib')
         except:
             log.exception("Making soup failed for %s" % url)
@@ -89,7 +97,14 @@ class Grabber(metaclass=ABCMeta):
     def parse(self):
         log.debug("Enter parse")
         if self.mode == self.CAR_SPECS:
-            self.parsing_result['specs'] = {}
+            for ko in SPECS:
+                for ki in SPECS[ko]:
+                    self.car_specs[SPECS[ko][ki]] = None
+            self.url_cache = {
+                        'https://www.autoevolution.com/cars': 'https://webcache.googleusercontent.com/search?q=cache:SUdASOkLJ0UJ:https://www.autoevolution.com/cars/+&cd=1&hl=en&ct=clnk&gl=tr&client=ubuntu',
+                        'https://www.autoevolution.com/acura/': 'https://webcache.googleusercontent.com/search?q=cache:HCq-XWL1GF4J:https://www.autoevolution.com/acura/+&cd=1&hl=en&ct=clnk&gl=tr&client=ubuntu',
+                        'https://www.autoevolution.com/cars/acura-tlx-2015.html': 'https://webcache.googleusercontent.com/search?q=cache:0c5F-zD70yYJ:https://www.autoevolution.com/cars/acura-tlx-2015.html+&cd=1&hl=en&ct=clnk&gl=tr&client=ubuntu'
+                         }
             return self.get_car_specs()
 
     @abstractmethod
@@ -149,32 +164,64 @@ class Grabber(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def fill_car_specs(self, generation):
+    def fill_car_specs(self):
         pass
 
     @abstractmethod
     def remap_spec(self, specs):
         pass
 
-    @abstractmethod
-    def make_car(self):
-        pass
+    def make_car(self, generation):
+        log.debug("Enter make_car")
+        t = TransmissionP(type=self.car_specs[SPECS.transmission.gearboxtype],
+                          gears=self.car_specs[SPECS.transmission.gears],
+                          drive_type=self.car_specs[SPECS.transmission.drivetype])
+        t.save()
+        e = EngineP(cylinders=self.car_specs[SPECS.engine.cylinders],
+                    generation=generation,
+                    displacement=self.car_specs[SPECS.engine.displacement],
+                    fuel=self.car_specs[SPECS.engine.fuel],
+                    turbo=self.car_specs[SPECS.engine.turbo],
+                    fuelsystem=self.car_specs[SPECS.engine.fuelsystem],
+                    power=self.car_specs[SPECS.engine.power],
+                    torque=self.car_specs[SPECS.engine.torque],
+                    speed=self.car_specs[SPECS.performance.speed],
+                    acceleration=self.car_specs[SPECS.performance.acceleration])
+        e.save()
+        cb = BodyP(type=self.car_specs[SPECS.generic.carbody])
+        cb.save()
+        car = CarP(generation=generation, engine=e,
+                 transmission=t, body=cb,
+                 breaks_f=self.car_specs[SPECS.breaks.front],
+                 breaks_r=self.car_specs[SPECS.breaks.rear],
+                 tires=self.car_specs[SPECS.tires.size],
+                 fconsumption=self.car_specs[SPECS.fuel_consumption.combined],
+                 length=self.car_specs[SPECS.dimensions.length],
+                 width=self.car_specs[SPECS.dimensions.width],
+                 height=self.car_specs[SPECS.dimensions.height],
+                 clearance=self.car_specs[SPECS.dimensions.clearance],
+                 cargovolume=self.car_specs[SPECS.dimensions.cargovolume],
+                 unladen=self.car_specs[SPECS.weight.unladen])
+        car.save()
+        return car
 
     def denote_spec(self, k, v):
         self.car_specs[k] = v
 
     def get_car_specs(self):
         log.debug("Enter get_car_specs")
-        for brand in self.get_brands():
-            self.make_soup(brand['url'])
-            for model in self.get_models(brand):
-                self.make_soup(model['url'])
-                for generation in self.get_generations(model):
-                    self.make_soup(generation['url'])
+        self.make_soup(self.url)
+        for brand, url in self.get_brands():
+            self.make_soup(url)
+            for model, url in self.get_models(brand):
+                self.make_soup(url)
+                for generation, url in self.get_generations(model):
+                    self.make_soup(url)
                     for url in self.get_modifications():
                         self.make_soup(url)
-                        self.car_specs = {**(self.fill_car_specs()),
-                                         **self.car_specs}
+                        self.car_specs = zip_dict(self.car_specs,
+                                                  self.fill_car_specs())
+                        log.debug(self.car_specs)
                         yield self.make_car(generation)
                         ##################################################
                         time.sleep(1000)
@@ -196,13 +243,10 @@ class Grabber(metaclass=ABCMeta):
                 year_s, year_e = self.extract_generation_years(block)
                 url = self.extract_generation_specs(block)
                 img = self.extract_generation_img(block)
-                generation = {}
-                generation['year_s'] = year_s
-                generation['year_e'] = year_e
-                generation['url'] = url
-                generation['img'] = img
-                generation['model'] = model
-                yield generation
+                g = GenerationP(img=img, year_s=year_s, year_e=year_e,
+                                model=model)
+                g.save()
+                yield g, url
             except:
                 log.exception("get_generations failed on block %s" % block)
 
@@ -213,14 +257,11 @@ class Grabber(metaclass=ABCMeta):
                 name = self.extract_model_name(block)
                 url = self.extract_model_models(block)
                 img = self.extract_model_img(block)
-                model = {}
-                model['name'] = name
-                model['url'] = url
-                model['img'] = img
-                model['brand'] = brand
+                m = ModelP(name=name, img=img, brand=brand)
+                m.save()
                 if self.get_models_callback:
                     self.get_models_callback(block)
-                yield model
+                yield m, url
             except:
                 log.exception("get_models failed on block %s" % block)
 
@@ -231,11 +272,9 @@ class Grabber(metaclass=ABCMeta):
                 name = self.extract_brand_name(block)
                 url = self.extract_brand_models(block)
                 img = self.extract_brand_img(block)
-                brand = {}
-                brand['name'] = name
-                brand['url'] = url
-                brand['img'] = img
-                yield brand
+                b = BrandP(name=name, img=img)
+                b.save()
+                yield b, url
             except:
                 log.exception("get_brands failed on block %s" % block)
 
@@ -291,7 +330,69 @@ class Cars_Data_Grabber(Grabber):
     def extract_modification_url(self, block):
         return block.a['href']
 
-    def fill_car_specs(self, generation):
+    def remap_spec(self, specs):
+        result = {}
+        for k, v in specs.items():
+            if k == 'Cylinders:':
+                result[SPECS.engine.cylinders] = v
+            elif k == 'Displacement:':
+                result[SPECS.engine.displacement] = v
+            elif k == 'Max power:':
+                result[SPECS.engine.power] = v
+            elif k == 'Max torque:':
+                result[SPECS.engine.torque] = v
+            elif k == 'Fuel delivery:':
+                result[SPECS.engine.fuelsystem] = v
+            elif k == 'Fuel:':
+                result[SPECS.engine.fuel] = v
+            elif k == 'Turbo:':
+                result[SPECS.engine.turbo] = v
+            elif k == 'Top speed:':
+                result[SPECS.performance.speed] = v
+            elif k == 'Acceleration 0-100 km/h:':
+                result[SPECS.performance.acceleration] = v
+            elif k == 'Urban consumption:':
+                result[SPECS.fuel_consumption.city] = v
+            elif k == 'Extra-urban consumption:':
+                result[SPECS.fuel_consumption.highway] = v
+            elif k == 'Average consumption:':
+                result[SPECS.fuel_consumption.combined] = v
+            elif k == 'Wheel drive:':
+                result[SPECS.transmission.drivetype] = v
+            elif k == 'Transmission type:':
+                result[SPECS.transmission.gearboxtype] = v
+            elif k == 'Gears:':
+                result[SPECS.transmission.gears] = v
+            #~ elif k == 'Front':
+                #~ result[SPECS.breaks.front] = v
+            #~ elif k == 'Rear':
+                #~ result[SPECS.breaks.rear] = v
+            #~ elif k == 'Tire Size':
+                #~ result[SPECS.tires.size] = v
+            elif k == 'Length:':
+                result[SPECS.dimensions.length] = v
+            elif k == 'Width:':
+                result[SPECS.dimensions.width] = v
+            elif k == 'Height:':
+                result[SPECS.dimensions.height] = v
+            elif k == 'Front track:':
+                result[SPECS.dimensions.track] = v
+            elif k == 'Wheelbase:':
+                result[SPECS.dimensions.wheelbase] = v
+            elif k == 'Ground clearance:':
+                result[SPECS.dimensions.clearance] = v
+            elif k == 'Trunk capacity:':
+                result[SPECS.dimensions.cargovolume] = v
+            elif k == 'Empty mass:':
+                result[SPECS.weight.unladen] = v
+            elif k == 'Max. loading capacity:':
+                result[SPECS.weight.gross] = v
+            elif k == 'Carbody:':
+                result[SPECS.generic.carbody] = v
+        return result
+
+    def fill_car_specs(self):
+        log.debug("Enter fill_car_specs")
         specs = {}
         for block in self.soup.find_all('div', class_='row box'):
             div = block.find('div', class_='col-6')
@@ -307,18 +408,8 @@ class Cars_Data_Grabber(Grabber):
                 (specs[str(i)+'th gear ratio:'] != '-') and
                 (i > gears)):
                     gears = i
-        transmission = {'type': specs['Transmission type:'],
-                        'gears': str(gears)}
-        engine = {'cylinders': specs['Cylinders:'],
-                  'generation': generation,
-                  'power': specs['Max power:'],
-                  'torque': specs['Max torque:'],
-                  'speed': specs['Top speed:'],
-                  'acceleration': specs['Acceleration 0-100 km/h:']}
-        carbody = {'type': specs['Carbody:']}
-        car = {'generation': generation, 'engine': engine,
-               'transmission': transmission, 'body': carbody}
-        return car
+        specs['Gears:'] = str(gears)
+        return self.remap_spec(specs)
 
 
 class Autoevolution_Grabber(Grabber):
@@ -384,61 +475,62 @@ class Autoevolution_Grabber(Grabber):
         result = {}
         for k, v in specs.items():
             if k == 'Cylinders':
-                result[Specs.CYLINDERS] = v
+                result[SPECS.engine.cylinders] = v
             elif k == 'Displacement':
-                result[Specs.DISPLACEMENT] = v
+                result[SPECS.engine.displacement] = v
             elif k == 'Power':
-                result[Specs.POWER] = v
+                result[SPECS.engine.power] = v
             elif k == 'Torque':
-                result[Specs.TORQUE] = v
+                result[SPECS.engine.torque] = v
             elif k == 'Fuel System':
-                result[Specs.FUELSYSTEM] = v
+                result[SPECS.engine.fuelsystem] = v
             elif k == 'Fuel':
-                result[Specs.FUEL] = v
+                result[SPECS.engine.fuel] = v
             elif k == 'Top Speed':
-                result[Specs.SPEED] = v
+                result[SPECS.performance.speed] = v
             elif k == 'Acceleration 0-62 Mph (0-100 kph)':
-                result[Specs.ACCELERATION] = v
+                result[SPECS.performance.acceleration] = v
             elif k == 'City':
-                result[Specs.CITY] = v
+                result[SPECS.fuel_consumption.city] = v
             elif k == 'Highway':
-                result[Specs.HIGHWAY] = v
+                result[SPECS.fuel_consumption.highway] = v
             elif k == 'Combined':
-                result[Specs.COMBINED] = v
+                result[SPECS.fuel_consumption.combined] = v
             elif k == 'Drive Type':
-                result[Specs.DRIVETYPE] = v
+                result[SPECS.transmission.drivetype] = v
             elif k == 'Gearbox':
                 mo = re.match(r'(\d)-speed ([^$]+$)', v)
                 if mo:
-                    result[Specs.GEARS] = mo.group(1)
-                    result[Specs.GEARBOXTYPE] = mo.group(2)
+                    result[SPECS.transmission.gears] = mo.group(1)
+                    result[SPECS.transmission.gearboxtype] = mo.group(2)
             elif k == 'Front':
-                result[Specs.FRONT] = v
+                result[SPECS.breaks.front] = v
             elif k == 'Rear':
-                result[Specs.REAR] = v
+                result[SPECS.breaks.rear] = v
             elif k == 'Tire Size':
-                result[Specs.SIZE] = v
+                result[SPECS.tires.size] = v
             elif k == 'Length':
-                result[Specs.LENGTH] = v
+                result[SPECS.dimensions.length] = v
             elif k == 'Width':
-                result[Specs.WIDTH] = v
+                result[SPECS.dimensions.width] = v
             elif k == 'Height':
-                result[Specs.HEIGHT] = v
+                result[SPECS.dimensions.height] = v
             elif k == 'Front/rear Track':
-                result[Specs.TRACK] = v
+                result[SPECS.dimensions.track] = v
             elif k == 'Wheelbase':
-                result[Specs.WHEELBASE] = v
+                result[SPECS.dimensions.wheelbase] = v
             elif k == 'Ground Clearance':
-                result[Specs.CLEARANCE] = v
+                result[SPECS.dimensions.clearance] = v
             elif k == 'Cargo Volume':
-                result[Specs.CARGOVOLUME] = v
+                result[SPECS.dimensions.cargovolume] = v
             elif k == 'Unladen Weight':
-                result[Specs.UNLADEN] = v
+                result[SPECS.weight.unladen] = v
             elif k == 'Gross Weight Limit':
-                result[Specs.GROSS] = v
+                result[SPECS.weight.gross] = v
         return result
 
     def fill_car_specs(self):
+        log.debug("Enter fill_car_specs")
         block = self.soup.find(class_='enginedata engine-inline')
         keys = []
         vals = []
@@ -451,31 +543,9 @@ class Autoevolution_Grabber(Grabber):
         specs = dict(zip(keys, vals))
         return self.remap_spec(specs)
 
-    def make_car(self, generation):
-        breaks_f = {'type': self.car_specs[Specs.FRONT]}
-        breaks_r = {'type': self.car_specs[Specs.REAR]}
-        transmission = {'type': self.car_specs[Specs.GEARBOXTYPE],
-                        'gears': Specs.GEARS,
-                        'drive_type': Specs.DRIVETYPE}
-        engine = {'cylinders': self.car_specs[Specs.CYLINDERS],
-                  'generation': generation,
-                  'displacement': self.car_specs[Specs.DISPLACEMENT],
-                  'fuel': self.car_specs[Specs.FUEL],
-                  'fuelsystem': self.car_specs[Specs.FUELSYSTEM],
-                  'power': self.car_specs[Specs.POWER],
-                  'torque': self.car_specs[Specs.TORQUE],
-                  'speed': self.car_specs[Specs.SPEED],
-                  'acceleration': self.car_specs[Specs.ACCELERATION]}
-        carbody = {'type': self.car_specs[Specs.CARBODY]}
-        car = {'generation': generation, 'engine': engine,
-               'transmission': transmission, 'body': carbody,
-               'breaks_f': breaks_f, 'breaks_r': breaks_r,
-               'tires': self.car_specs[Specs.SIZE]}
-        return car
-
     def models_callback(self, block):
         body = block.find(class_="body")
-        self.denote_spec(Specs.CARBODY, body.text)
+        self.denote_spec(SPECS.generic.carbody, body.text)
 
 
 def grabber_factory(url, mode):
@@ -491,32 +561,3 @@ def grab(url):
     logging.info('Started for %s' % url)
     for item in grabber.parse():
         logging.debug(item)
-        b = BrandP(name=item['generation']['model']['brand']['name'],
-                   img=item['generation']['model']['brand']['img'])
-        b.save()
-        m = ModelP(name=item['generation']['model']['name'],
-                   img=item['generation']['model']['img'],
-                   brand=b)
-        m.save()
-        g = GenerationP(img=item['generation']['img'],
-                        year_s=item['generation']['year_s'],
-                        year_e=item['generation']['year_e'],
-                        model=m)
-        g.save()
-        cb = BodyP(type=item['body']['type'])
-        cb.save()
-        t = TransmissionP(type=item['transmission']['type'],
-                          gears=item['transmission']['gears'])
-        t.save()
-        e = EngineP(cylinders=item['engine']['cylinders'],
-                    power=item['engine']['power'],
-                    torque=item['engine']['torque'],
-                    speed=item['engine']['speed'],
-                    acceleration=item['engine']['acceleration'],
-                    generation=g)
-        e.save()
-        c = CarP(body=cb,
-                 engine=e,
-                 transmission=t,
-                 generation=g)
-        c.save()

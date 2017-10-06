@@ -4,6 +4,8 @@ from django.db import models
 from django.db import IntegrityError
 import logging
 import logging.handlers
+import django
+
 
 __author__ = "Andrey Kashrin <kashirinas@rambler.ru>"
 __license__ = "Apache 2.0"
@@ -74,7 +76,9 @@ class mBase(models.Model):
                 for f in flds:
                     old_f_val = getattr(same, f.name)
                     new_f_val = getattr(self, f.name)
-                    if not new_f_val and old_f_val:
+                    if (not new_f_val and old_f_val) or \
+                       (new_f_val and old_f_val and isinstance(old_f_val,
+                           django.db.models.fields.files.FieldFile)):
                         setattr(self, f.name, old_f_val)
                 kwargs['force_update'] = True
             super(mBase, self).save(*args, **kwargs)
@@ -117,7 +121,7 @@ class Generations(mBase):
     name = models.CharField(max_length=50, null=True)
     year_s = models.IntegerField()
     year_e = models.IntegerField(null=True)
-    img = models.FileField(upload_to='generation/')
+    img = models.FileField(upload_to='generations/')
 
     class Meta:
         unique_together = ("model", "year_s")
@@ -186,8 +190,7 @@ class Engines(mBase):
                 ('s', 'Sequential'),
                 ('d', 'Direct'),
                 ('id', 'Indirect injection'),
-            ),
-        ),
+            ),),
     )
     cylinders = models.IntegerField()
     power = models.IntegerField(help_text='hp')
@@ -196,6 +199,7 @@ class Engines(mBase):
     displacement = models.IntegerField(help_text='cm3')
     fuel = models.CharField(max_length=1, choices=FUEL)
     fuelsystem = models.CharField(max_length=2, choices=FUELSYSTEM)
+    turbo = models.NullBooleanField()
     acceleration = models.DecimalField(max_digits=4, decimal_places=2,
                                        null=True, help_text='m/s')
     generation = models.ForeignKey(Generations, on_delete=models.CASCADE)
@@ -207,27 +211,29 @@ class Engines(mBase):
         return "Engine: {}c, {}hp, {}N/m".format(self.cylinders,
                                                  self.power, self.torque)
 
-class Breakes(mBase):
+
+class Car(mBase):
     BREAK_TYPE = (
         ('vd', 'Ventilated Discs'),
         ('d', 'Disc'),
         ('dr', 'Drums'),
     )
-    type = models.CharField(max_length=2, choices=BREAK_TYPE)
-
-    def __str__(self):
-        return "Breakes: %s" % self.type
-
-
-class Car(mBase):
     generation = models.ForeignKey(Generations, on_delete=models.CASCADE)
     body = models.ForeignKey(Bodies, on_delete=models.CASCADE)
     engine = models.ForeignKey(Engines, on_delete=models.CASCADE)
     transmission = models.ForeignKey(Transmissions,
                                      on_delete=models.CASCADE)
-    breaks_f = models.ForeignKey(Breakes, related_name='f')
-    breaks_r = models.ForeignKey(Breakes, related_name='r')
+    breaks_f = models.CharField(max_length=2, choices=BREAK_TYPE)
+    breaks_r = models.CharField(max_length=2, choices=BREAK_TYPE)
     tires = models.CharField(max_length=15, null=True, help_text='175/70SR16')
+    fconsumption = models.DecimalField(max_digits=4, decimal_places=1,
+                                       null=True, help_text='l/100Km')
+    length = models.IntegerField(help_text='mm')
+    width = models.IntegerField(help_text='mm')
+    height = models.IntegerField(help_text='mm')
+    clearance = models.IntegerField(help_text='mm')
+    cargovolume = models.IntegerField(help_text='litres')
+    unladen = models.IntegerField(help_text='kg')
     last_update = models.DateTimeField(auto_now=True)
 
     class Meta:
